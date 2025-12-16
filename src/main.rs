@@ -20,11 +20,16 @@ use sway::WorkspaceState;
 
 fn get_pid_file_path() -> String {
     // Use XDG_RUNTIME_DIR for security (per-user, proper permissions)
-    // Falls back to /tmp only if XDG_RUNTIME_DIR is not set
-    match std::env::var("XDG_RUNTIME_DIR") {
-        Ok(dir) => format!("{}/sway-mirror.pid", dir),
-        Err(_) => format!("/tmp/sway-mirror-{}.pid", unsafe { libc::getuid() }),
+    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
+        return format!("{}/sway-mirror.pid", dir);
     }
+    if let Ok(dir) = std::env::var("XDG_STATE_HOME") {
+        return format!("{}/sway-mirror.pid", dir);
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return format!("{}/.local/state/sway-mirror.pid", home);
+    }
+    "/run/user/1000/sway-mirror.pid".to_string()
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
@@ -121,6 +126,20 @@ fn stop_running_instance() -> Result<()> {
     unsafe {
         if libc::kill(pid, libc::SIGTERM) == 0 {
             println!("Sent stop signal to sway-mirror (PID {})", pid);
+
+            // Wait a moment for process to exit
+            std::thread::sleep(std::time::Duration::from_millis(100));
+
+            // Restore workspaces from saved state file
+            if let Err(e) = WorkspaceState::restore_from_file() {
+                eprintln!("Warning: Failed to restore workspaces: {}", e);
+            } else {
+                println!("Restored workspaces to original outputs");
+            }
+
+            // Clean up PID file if still there
+            remove_pid_file();
+
             Ok(())
         } else {
             // Process might not exist anymore, clean up PID file
@@ -343,13 +362,15 @@ fn main() -> Result<()> {
     // Remove PID file
     remove_pid_file();
 
-    // Restore workspaces
+    // Restore workspaces (use in-memory state if available, otherwise cleanup state file)
     if let Some(state) = workspace_state {
         if let Err(e) = state.restore() {
             eprintln!("Warning: Failed to restore workspaces: {}", e);
         } else {
             println!("Restored workspaces to original outputs");
         }
+        // Remove state file since we restored from memory
+        WorkspaceState::remove_state_file();
     }
 
     Ok(())
