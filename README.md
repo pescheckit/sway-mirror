@@ -20,6 +20,21 @@ Fast zero-copy screen mirroring for Sway/wlroots compositors.
 
 Works with both discrete GPUs and integrated graphics (Intel, AMD APU).
 
+## Build Dependencies
+
+Install the required development libraries before building:
+
+```bash
+# Debian/Ubuntu
+sudo apt install libwayland-dev
+
+# Fedora/RHEL
+sudo dnf install wayland-devel
+
+# Arch Linux
+sudo pacman -S wayland
+```
+
 ## Installation
 
 ```bash
