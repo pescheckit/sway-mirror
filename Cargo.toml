@@ -1,0 +1,23 @@
+[package]
+name = "sway-mirror"
+version = "0.1.0"
+edition = "2021"
+description = "Fast zero-copy screen mirroring for Sway/wlroots"
+license = "MIT"
+
+[dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-backend = "0.3"
+wayland-egl = "0.32"
+khronos-egl = { version = "6.0", features = ["dynamic"] }
+gl = "0.14"
+gbm = "0.16"
+drm-fourcc = "2.2"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1.0"
+nix = { version = "0.29", features = ["fs"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ctrlc = "3.4"
