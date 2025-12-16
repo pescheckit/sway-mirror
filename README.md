@@ -18,11 +18,19 @@ Fast zero-copy screen mirroring for Sway/wlroots compositors.
 - `zwlr_layer_shell_v1` protocol support
 - EGL/OpenGL ES support
 
+Works with both discrete GPUs and integrated graphics (Intel, AMD APU).
+
 ## Installation
 
 ```bash
+# Build
 cargo build --release
-# Binary will be at ./target/release/sway-mirror
+
+# Install to ~/.local/bin (user)
+cp target/release/sway-mirror ~/.local/bin/
+
+# Or install system-wide
+sudo cp target/release/sway-mirror /usr/local/bin/
 ```
 
 ## Usage
