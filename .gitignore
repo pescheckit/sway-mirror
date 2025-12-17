@@ -1,1 +1,14 @@
-target
+# Rust build
+target/
+
+# Debian build artifacts
+debian/.debhelper/
+debian/cargo/
+debian/sway-mirror/
+debian/debhelper-build-stamp
+debian/*.debhelper
+debian/*.substvars
+debian/files
+*.deb
+*.buildinfo
+*.changes

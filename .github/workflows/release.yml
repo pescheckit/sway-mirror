@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+      - '[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential debhelper libwayland-dev libgbm-dev libegl1-mesa-dev libdrm-dev pkg-config
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Update version in Cargo.toml
+        run: |
+          sed -i 's/^version = ".*"/version = "${{ env.VERSION }}"/' Cargo.toml
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Update debian changelog
+        run: |
+          DATE=$(date -R)
+          printf '%s\n' \
+            "sway-mirror (${{ env.VERSION }}-1) unstable; urgency=medium" \
+            "" \
+            "  * Release ${{ env.VERSION }}" \
+            "" \
+            " -- Bram <bram+sway@pescheck.io>  $DATE" \
+            > debian/changelog
+
+      - name: Build .deb package
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p dist
+          mv ../sway-mirror_${{ env.VERSION }}-1_amd64.deb dist/sway-mirror_${{ env.VERSION }}_amd64.deb
+          cp target/release/sway-mirror dist/sway-mirror-linux-x86_64
+          cd dist
+          sha256sum sway-mirror_${{ env.VERSION }}_amd64.deb > sway-mirror_${{ env.VERSION }}_amd64.deb.sha256
+          sha256sum sway-mirror-linux-x86_64 > sway-mirror-linux-x86_64.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: dist/
+
+  create-release:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-artifacts
+          path: ./dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: v${{ env.VERSION }}
+          files: |
+            dist/*.deb
+            dist/*.deb.sha256
+            dist/sway-mirror-linux-x86_64
+            dist/sway-mirror-linux-x86_64.sha256
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            ### Debian/Ubuntu
+            ```bash
+            wget https://github.com/pescheckit/sway-mirror/releases/download/v${{ env.VERSION }}/sway-mirror_${{ env.VERSION }}_amd64.deb
+            wget https://github.com/pescheckit/sway-mirror/releases/download/v${{ env.VERSION }}/sway-mirror_${{ env.VERSION }}_amd64.deb.sha256
+            sha256sum -c sway-mirror_${{ env.VERSION }}_amd64.deb.sha256
+            sudo dpkg -i sway-mirror_${{ env.VERSION }}_amd64.deb
+            sudo apt-get install -f
+            ```
+
+            ### Arch Linux (AUR)
+            ```bash
+            yay -S sway-mirror
+            ```
+
+            ### Binary Download
+            ```bash
+            wget https://github.com/pescheckit/sway-mirror/releases/download/v${{ env.VERSION }}/sway-mirror-linux-x86_64
+            wget https://github.com/pescheckit/sway-mirror/releases/download/v${{ env.VERSION }}/sway-mirror-linux-x86_64.sha256
+            sha256sum -c sway-mirror-linux-x86_64.sha256
+            chmod +x sway-mirror-linux-x86_64
+            sudo mv sway-mirror-linux-x86_64 /usr/local/bin/sway-mirror
+            ```
+
+            ### Build from source
+            ```bash
+            cargo install --git https://github.com/pescheckit/sway-mirror
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-aur:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if AUR secret exists
+        id: check-secret
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          if [ -n "$AUR_SSH_KEY" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "AUR_SSH_KEY not set, skipping AUR update"
+          fi
+
+      - name: Checkout
+        if: steps.check-secret.outputs.exists == 'true'
+        uses: actions/checkout@v4
+
+      - name: Get version
+        if: steps.check-secret.outputs.exists == 'true'
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Update AUR package
+        if: steps.check-secret.outputs.exists == 'true'
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          # Setup SSH
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          printf '%s\n' "Host aur.archlinux.org" "  IdentityFile ~/.ssh/aur" "  User aur" >> ~/.ssh/config
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+          # Clone AUR repo
+          git clone ssh://aur@aur.archlinux.org/sway-mirror.git aur-repo
+          cd aur-repo
+
+          # Update PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=${{ env.VERSION }}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+          # Generate .SRCINFO
+          {
+            echo "pkgbase = sway-mirror"
+            echo $'\t'"pkgdesc = Fast zero-copy screen mirroring for Sway/wlroots"
+            echo $'\t'"pkgver = ${{ env.VERSION }}"
+            echo $'\t'"pkgrel = 1"
+            echo $'\t'"url = https://github.com/pescheckit/sway-mirror"
+            echo $'\t'"arch = x86_64"
+            echo $'\t'"arch = aarch64"
+            echo $'\t'"license = MIT"
+            echo $'\t'"makedepends = cargo"
+            echo $'\t'"makedepends = wayland-protocols"
+            echo $'\t'"depends = wayland"
+            echo $'\t'"depends = libgbm"
+            echo $'\t'"depends = libdrm"
+            echo $'\t'"source = sway-mirror-${{ env.VERSION }}.tar.gz::https://github.com/pescheckit/sway-mirror/archive/refs/tags/v${{ env.VERSION }}.tar.gz"
+            echo $'\t'"sha256sums = SKIP"
+            echo ""
+            echo "pkgname = sway-mirror"
+          } > .SRCINFO
+
+          # Commit and push
+          git config user.name "Pescheckit Bot"
+          git config user.email "bram+sway@pescheck.io"
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to v${{ env.VERSION }}" || echo "No changes to commit"
+          git push || echo "Push failed - may need to set up AUR package first"

@@ -1,0 +1,28 @@
+Source: sway-mirror
+Section: utils
+Priority: optional
+Maintainer: Bram <bram+sway@pescheck.io>
+Build-Depends: debhelper (>= 10),
+               cargo,
+               rustc,
+               libwayland-dev,
+               libgbm-dev,
+               libegl1-mesa-dev,
+               libdrm-dev,
+               pkg-config
+Standards-Version: 4.6.0
+Homepage: https://github.com/pescheckit/sway-mirror
+Vcs-Browser: https://github.com/pescheckit/sway-mirror
+Vcs-Git: https://github.com/pescheckit/sway-mirror.git
+Rules-Requires-Root: no
+
+Package: sway-mirror
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Fast zero-copy screen mirroring for Sway/wlroots
+ A high-performance screen mirroring tool for Sway and other
+ wlroots-based Wayland compositors. Features include:
+  - Zero-copy buffer sharing via DMA-BUF
+  - Low latency mirroring
+  - Multiple scaling modes (fit, fill, stretch, center)
+  - Cursor mirroring support
