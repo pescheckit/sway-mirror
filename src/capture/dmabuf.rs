@@ -1,9 +1,9 @@
-use std::os::unix::io::{RawFd, OwnedFd, FromRawFd, AsRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::sync::{Arc, Mutex};
-use wayland_client::{Connection, Dispatch, QueueHandle, protocol::wl_output};
+use wayland_client::{protocol::wl_output, Connection, Dispatch, QueueHandle};
 use wayland_protocols_wlr::export_dmabuf::v1::client::{
-    zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1,
     zwlr_export_dmabuf_frame_v1::{self, ZwlrExportDmabufFrameV1},
+    zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1,
 };
 
 use crate::wayland::AppState;
@@ -20,9 +20,9 @@ pub struct DmabufPlane {
 pub struct CapturedFrame {
     pub width: u32,
     pub height: u32,
-    pub format: u32,  // DRM fourcc
+    pub format: u32, // DRM fourcc
     pub planes: Vec<DmabufPlane>,
-    pub fds: Vec<OwnedFd>,  // Keep fds alive
+    pub fds: Vec<OwnedFd>, // Keep fds alive
 }
 
 /// Newtype wrapper for frame capture state to satisfy orphan rules

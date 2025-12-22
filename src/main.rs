@@ -1,22 +1,22 @@
-mod wayland;
 mod capture;
 mod render;
 mod sway;
+mod wayland;
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use clap::{Parser, ValueEnum};
 use nix::libc;
 use std::ffi::c_void;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::fs;
 use std::io::Write;
 use std::process;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-use wayland::outputs::request_xdg_outputs;
 use capture::DmabufCapture;
 use render::{EglContext, MirrorSurface, ScaleMode};
 use sway::WorkspaceState;
+use wayland::outputs::request_xdg_outputs;
 
 fn get_pid_file_path() -> String {
     // Use XDG_RUNTIME_DIR for security (per-user, proper permissions)
@@ -113,13 +113,18 @@ fn stop_running_instance() -> Result<()> {
     let pid_str = fs::read_to_string(&pid_file)
         .map_err(|_| anyhow::anyhow!("No running sway-mirror instance found (no PID file)"))?;
 
-    let pid: i32 = pid_str.trim().parse()
+    let pid: i32 = pid_str
+        .trim()
+        .parse()
         .map_err(|_| anyhow::anyhow!("Invalid PID in file"))?;
 
     // Verify it's actually sway-mirror before killing
     if !is_sway_mirror_process(pid) {
         remove_pid_file();
-        bail!("PID {} is not a sway-mirror process (stale PID file removed)", pid);
+        bail!(
+            "PID {} is not a sway-mirror process (stale PID file removed)",
+            pid
+        );
     }
 
     // Send SIGTERM
@@ -166,7 +171,10 @@ fn main() -> Result<()> {
                 if is_sway_mirror_process(pid) {
                     unsafe {
                         if libc::kill(pid, 0) == 0 {
-                            bail!("sway-mirror is already running (PID {}). Use --stop to stop it.", pid);
+                            bail!(
+                                "sway-mirror is already running (PID {}). Use --stop to stop it.",
+                                pid
+                            );
                         }
                     }
                 }
@@ -190,22 +198,25 @@ fn main() -> Result<()> {
     if cli.list {
         println!("Available outputs:");
         for output in conn.state.output_manager.list() {
-            println!("  {} - {} ({}x{})",
-                output.name,
-                output.description,
-                output.width,
-                output.height
+            println!(
+                "  {} - {} ({}x{})",
+                output.name, output.description, output.width, output.height
             );
         }
         return Ok(());
     }
 
     // Require source
-    let source_name = cli.source.ok_or_else(|| anyhow::anyhow!("Source output required. Use --list to see available outputs."))?;
+    let source_name = cli.source.ok_or_else(|| {
+        anyhow::anyhow!("Source output required. Use --list to see available outputs.")
+    })?;
 
     // Find source output
     let source_output = {
-        let source = conn.state.output_manager.get_by_name(&source_name)
+        let source = conn
+            .state
+            .output_manager
+            .get_by_name(&source_name)
             .ok_or_else(|| anyhow::anyhow!("Source output '{}' not found", source_name))?;
         source.wl_output.clone()
     };
@@ -214,17 +225,33 @@ fn main() -> Result<()> {
     let target_outputs: Vec<_> = {
         if cli.to.is_empty() {
             // All outputs except source
-            conn.state.output_manager.list()
+            conn.state
+                .output_manager
+                .list()
                 .into_iter()
                 .filter(|o| o.name != source_name)
-                .map(|o| (o.name.clone(), o.wl_output.clone(), o.width as u32, o.height as u32))
+                .map(|o| {
+                    (
+                        o.name.clone(),
+                        o.wl_output.clone(),
+                        o.width as u32,
+                        o.height as u32,
+                    )
+                })
                 .collect()
         } else {
             // Specified targets
-            cli.to.iter()
+            cli.to
+                .iter()
                 .filter_map(|name| {
-                    conn.state.output_manager.get_by_name(name)
-                        .map(|o| (o.name.clone(), o.wl_output.clone(), o.width as u32, o.height as u32))
+                    conn.state.output_manager.get_by_name(name).map(|o| {
+                        (
+                            o.name.clone(),
+                            o.wl_output.clone(),
+                            o.width as u32,
+                            o.height as u32,
+                        )
+                    })
                 })
                 .collect()
         }
@@ -260,7 +287,8 @@ fn main() -> Result<()> {
     let r = running.clone();
     ctrlc::set_handler(move || {
         r.store(false, Ordering::SeqCst);
-    }).expect("Error setting Ctrl+C handler");
+    })
+    .expect("Error setting Ctrl+C handler");
 
     // Initialize EGL
     let wayland_display = conn.connection.backend().display_ptr() as *mut c_void;
@@ -273,9 +301,15 @@ fn main() -> Result<()> {
     // Create mirror surfaces for each target
     let mut surfaces: Vec<MirrorSurface> = Vec::new();
     {
-        let compositor = conn.state.compositor.as_ref()
+        let compositor = conn
+            .state
+            .compositor
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("wl_compositor not available"))?;
-        let layer_shell = conn.state.layer_shell.as_ref()
+        let layer_shell = conn
+            .state
+            .layer_shell
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("zwlr_layer_shell_v1 not available"))?;
 
         let qh = conn.queue_handle();
@@ -289,7 +323,8 @@ fn main() -> Result<()> {
                 &qh,
                 *width,
                 *height,
-            ).map_err(|e| anyhow::anyhow!("Failed to create surface for {}: {}", name, e))?;
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create surface for {}: {}", name, e))?;
             surfaces.push(surface);
         }
     }
@@ -322,8 +357,10 @@ fn main() -> Result<()> {
 
         // Request frame capture
         {
-            let dmabuf_manager = conn.state.dmabuf_manager.as_ref()
-                .ok_or_else(|| anyhow::anyhow!("zwlr_export_dmabuf_manager_v1 not available"))?;
+            let dmabuf_manager =
+                conn.state.dmabuf_manager.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("zwlr_export_dmabuf_manager_v1 not available")
+                })?;
             let qh = conn.queue_handle();
             capture.request_frame(dmabuf_manager, &source_output, &qh, cli.cursor);
         }

@@ -1,3 +1,3 @@
 pub mod dmabuf;
 
-pub use dmabuf::{DmabufCapture, CapturedFrame};
+pub use dmabuf::{CapturedFrame, DmabufCapture};

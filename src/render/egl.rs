@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use khronos_egl as egl;
 use std::ffi::c_void;
 
@@ -32,25 +32,31 @@ impl EglContext {
             .context("Failed to load EGL")?;
 
         // Get EGL display from Wayland
-        let display = unsafe {
-            egl.get_display(wayland_display)
-        }.ok_or_else(|| anyhow::anyhow!("Failed to get EGL display"))?;
+        let display = unsafe { egl.get_display(wayland_display) }
+            .ok_or_else(|| anyhow::anyhow!("Failed to get EGL display"))?;
 
         egl.initialize(display)
             .context("Failed to initialize EGL")?;
 
         // Choose config
         let config_attribs = [
-            egl::SURFACE_TYPE, egl::WINDOW_BIT,
-            egl::RED_SIZE, 8,
-            egl::GREEN_SIZE, 8,
-            egl::BLUE_SIZE, 8,
-            egl::ALPHA_SIZE, 8,
-            egl::RENDERABLE_TYPE, egl::OPENGL_ES2_BIT,
+            egl::SURFACE_TYPE,
+            egl::WINDOW_BIT,
+            egl::RED_SIZE,
+            8,
+            egl::GREEN_SIZE,
+            8,
+            egl::BLUE_SIZE,
+            8,
+            egl::ALPHA_SIZE,
+            8,
+            egl::RENDERABLE_TYPE,
+            egl::OPENGL_ES2_BIT,
             egl::NONE,
         ];
 
-        let config = egl.choose_first_config(display, &config_attribs)
+        let config = egl
+            .choose_first_config(display, &config_attribs)
             .context("Failed to choose EGL config")?
             .ok_or_else(|| anyhow::anyhow!("No suitable EGL config found"))?;
 
@@ -60,12 +66,15 @@ impl EglContext {
 
         // Create context
         let context_attribs = [
-            egl::CONTEXT_MAJOR_VERSION, 2,
-            egl::CONTEXT_MINOR_VERSION, 0,
+            egl::CONTEXT_MAJOR_VERSION,
+            2,
+            egl::CONTEXT_MINOR_VERSION,
+            0,
             egl::NONE,
         ];
 
-        let context = egl.create_context(display, config, None, &context_attribs)
+        let context = egl
+            .create_context(display, config, None, &context_attribs)
             .context("Failed to create EGL context")?;
 
         Ok(Self {
@@ -80,26 +89,39 @@ impl EglContext {
     }
 
     pub fn make_current(&self, surface: egl::Surface) -> Result<()> {
-        self.egl.make_current(self.display, Some(surface), Some(surface), Some(self.context))
+        self.egl
+            .make_current(
+                self.display,
+                Some(surface),
+                Some(surface),
+                Some(self.context),
+            )
             .context("Failed to make EGL context current")?;
         Ok(())
     }
 
     pub fn make_current_surfaceless(&self) -> Result<()> {
-        self.egl.make_current(self.display, None, None, Some(self.context))
+        self.egl
+            .make_current(self.display, None, None, Some(self.context))
             .context("Failed to make surfaceless context current")?;
         Ok(())
     }
 
-    pub fn create_window_surface(&self, native_window: egl::NativeWindowType) -> Result<egl::Surface> {
+    pub fn create_window_surface(
+        &self,
+        native_window: egl::NativeWindowType,
+    ) -> Result<egl::Surface> {
         let surface = unsafe {
-            self.egl.create_window_surface(self.display, self.config, native_window, None)
-        }.context("Failed to create EGL window surface")?;
+            self.egl
+                .create_window_surface(self.display, self.config, native_window, None)
+        }
+        .context("Failed to create EGL window surface")?;
         Ok(surface)
     }
 
     pub fn swap_buffers(&self, surface: egl::Surface) -> Result<()> {
-        self.egl.swap_buffers(self.display, surface)
+        self.egl
+            .swap_buffers(self.display, surface)
             .context("Failed to swap buffers")?;
         Ok(())
     }
@@ -107,7 +129,8 @@ impl EglContext {
     pub fn init_gl(&mut self) -> Result<()> {
         unsafe {
             gl::load_with(|s| {
-                self.egl.get_proc_address(s)
+                self.egl
+                    .get_proc_address(s)
                     .map(|p| p as *const c_void)
                     .unwrap_or(std::ptr::null())
             });
@@ -161,10 +184,7 @@ impl EglContext {
             // Full screen quad
             let vertices: [f32; 16] = [
                 // pos      // tex
-                -1.0, -1.0, 0.0, 1.0,
-                 1.0, -1.0, 1.0, 1.0,
-                -1.0,  1.0, 0.0, 0.0,
-                 1.0,  1.0, 1.0, 0.0,
+                -1.0, -1.0, 0.0, 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0,
             ];
 
             let mut vbo = 0;
@@ -223,14 +243,26 @@ impl EglContext {
             let mut len = 0;
             gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut len);
             let mut buf = vec![0u8; len as usize];
-            gl::GetShaderInfoLog(shader, len, std::ptr::null_mut(), buf.as_mut_ptr() as *mut i8);
+            gl::GetShaderInfoLog(
+                shader,
+                len,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr() as *mut i8,
+            );
             bail!("Shader compile error: {}", String::from_utf8_lossy(&buf));
         }
 
         Ok(shader)
     }
 
-    pub fn render_frame(&self, frame: &CapturedFrame, surface: egl::Surface, width: i32, height: i32, scale_mode: ScaleMode) -> Result<()> {
+    pub fn render_frame(
+        &self,
+        frame: &CapturedFrame,
+        surface: egl::Surface,
+        width: i32,
+        height: i32,
+        scale_mode: ScaleMode,
+    ) -> Result<()> {
         self.make_current(surface)?;
 
         unsafe {
@@ -297,27 +329,34 @@ impl EglContext {
                 let plane = &frame.planes[0];
 
                 let attribs: [i32; 13] = [
-                    EGL_WIDTH, frame.width as i32,
-                    EGL_HEIGHT, frame.height as i32,
-                    EGL_LINUX_DRM_FOURCC_EXT, frame.format as i32,
-                    EGL_DMA_BUF_PLANE0_FD_EXT, plane.fd,
-                    EGL_DMA_BUF_PLANE0_OFFSET_EXT, plane.offset as i32,
-                    EGL_DMA_BUF_PLANE0_PITCH_EXT, plane.stride as i32,
+                    EGL_WIDTH,
+                    frame.width as i32,
+                    EGL_HEIGHT,
+                    frame.height as i32,
+                    EGL_LINUX_DRM_FOURCC_EXT,
+                    frame.format as i32,
+                    EGL_DMA_BUF_PLANE0_FD_EXT,
+                    plane.fd,
+                    EGL_DMA_BUF_PLANE0_OFFSET_EXT,
+                    plane.offset as i32,
+                    EGL_DMA_BUF_PLANE0_PITCH_EXT,
+                    plane.stride as i32,
                     egl::NONE as i32,
                 ];
 
                 // Use eglCreateImageKHR
                 type CreateImageKHR = unsafe extern "C" fn(
                     egl::Display,
-                    *mut c_void,  // EGLContext as raw pointer
+                    *mut c_void, // EGLContext as raw pointer
                     u32,
                     *mut c_void,
                     *const i32,
                 ) -> *mut c_void;
 
                 let create_image: CreateImageKHR = std::mem::transmute(
-                    self.egl.get_proc_address("eglCreateImageKHR")
-                        .ok_or_else(|| anyhow::anyhow!("eglCreateImageKHR not found"))?
+                    self.egl
+                        .get_proc_address("eglCreateImageKHR")
+                        .ok_or_else(|| anyhow::anyhow!("eglCreateImageKHR not found"))?,
                 );
 
                 let image = create_image(
@@ -337,8 +376,9 @@ impl EglContext {
 
                 type ImageTargetTexture2DOES = unsafe extern "C" fn(u32, *mut c_void);
                 let image_target: ImageTargetTexture2DOES = std::mem::transmute(
-                    self.egl.get_proc_address("glEGLImageTargetTexture2DOES")
-                        .ok_or_else(|| anyhow::anyhow!("glEGLImageTargetTexture2DOES not found"))?
+                    self.egl
+                        .get_proc_address("glEGLImageTargetTexture2DOES")
+                        .ok_or_else(|| anyhow::anyhow!("glEGLImageTargetTexture2DOES not found"))?,
                 );
                 image_target(gl::TEXTURE_2D, image);
 
@@ -353,8 +393,9 @@ impl EglContext {
                 // Destroy EGL image
                 type DestroyImageKHR = unsafe extern "C" fn(egl::Display, *mut c_void) -> u32;
                 let destroy_image: DestroyImageKHR = std::mem::transmute(
-                    self.egl.get_proc_address("eglDestroyImageKHR")
-                        .ok_or_else(|| anyhow::anyhow!("eglDestroyImageKHR not found"))?
+                    self.egl
+                        .get_proc_address("eglDestroyImageKHR")
+                        .ok_or_else(|| anyhow::anyhow!("eglDestroyImageKHR not found"))?,
                 );
                 destroy_image(self.display, image);
             }

@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
+use std::ops::{Deref, DerefMut};
 use wayland_client::{
-    protocol::{wl_compositor, wl_registry, wl_output},
-    Connection, Dispatch, QueueHandle, EventQueue,
+    protocol::{wl_compositor, wl_output, wl_registry},
+    Connection, Dispatch, EventQueue, QueueHandle,
 };
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
 use wayland_protocols_wlr::export_dmabuf::v1::client::zwlr_export_dmabuf_manager_v1;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1;
-use std::ops::{Deref, DerefMut};
 
 use super::outputs::OutputManager;
 
@@ -55,8 +55,8 @@ pub struct WaylandConnection {
 
 impl WaylandConnection {
     pub fn connect() -> Result<Self> {
-        let connection = Connection::connect_to_env()
-            .context("Failed to connect to Wayland display")?;
+        let connection =
+            Connection::connect_to_env().context("Failed to connect to Wayland display")?;
 
         let mut state = AppState(WaylandState::new());
         let mut queue = connection.new_event_queue();
@@ -103,7 +103,12 @@ impl Dispatch<wl_registry::WlRegistry, ()> for AppState {
         _conn: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        if let wl_registry::Event::Global { name, interface, version } = event {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = event
+        {
             match interface.as_str() {
                 "wl_compositor" => {
                     state.compositor = Some(registry.bind(name, version.min(5), qh, ()));
@@ -136,7 +141,8 @@ impl Dispatch<wl_compositor::WlCompositor, ()> for AppState {
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }
 
 impl Dispatch<zwlr_layer_shell_v1::ZwlrLayerShellV1, ()> for AppState {
@@ -147,7 +153,8 @@ impl Dispatch<zwlr_layer_shell_v1::ZwlrLayerShellV1, ()> for AppState {
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }
 
 impl Dispatch<zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1, ()> for AppState {
@@ -158,7 +165,8 @@ impl Dispatch<zwlr_export_dmabuf_manager_v1::ZwlrExportDmabufManagerV1, ()> for 
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }
 
 impl Dispatch<zxdg_output_manager_v1::ZxdgOutputManagerV1, ()> for AppState {
@@ -169,5 +177,6 @@ impl Dispatch<zxdg_output_manager_v1::ZxdgOutputManagerV1, ()> for AppState {
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }

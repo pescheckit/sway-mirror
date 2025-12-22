@@ -1,15 +1,18 @@
 use anyhow::{Context, Result};
+use khronos_egl as egl;
 use std::sync::{Arc, Mutex};
-use wayland_client::{Connection, Dispatch, QueueHandle, Proxy, protocol::{wl_surface, wl_output, wl_compositor}};
+use wayland_client::{
+    protocol::{wl_compositor, wl_output, wl_surface},
+    Connection, Dispatch, Proxy, QueueHandle,
+};
 use wayland_egl::WlEglSurface;
 use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_shell_v1::{self, ZwlrLayerShellV1},
     zwlr_layer_surface_v1::{self, ZwlrLayerSurfaceV1},
 };
-use khronos_egl as egl;
 
-use crate::wayland::AppState;
 use crate::render::EglContext;
+use crate::wayland::AppState;
 
 /// Newtype wrapper for surface data
 pub struct SurfaceData {
@@ -60,12 +63,13 @@ impl MirrorSurface {
         // Configure as fullscreen
         layer_surface.set_anchor(
             zwlr_layer_surface_v1::Anchor::Top
-            | zwlr_layer_surface_v1::Anchor::Bottom
-            | zwlr_layer_surface_v1::Anchor::Left
-            | zwlr_layer_surface_v1::Anchor::Right
+                | zwlr_layer_surface_v1::Anchor::Bottom
+                | zwlr_layer_surface_v1::Anchor::Left
+                | zwlr_layer_surface_v1::Anchor::Right,
         );
         layer_surface.set_exclusive_zone(-1); // Don't reserve space
-        layer_surface.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::None);
+        layer_surface
+            .set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::None);
 
         // Commit to get configure event
         wl_surface.commit();
@@ -74,9 +78,8 @@ impl MirrorSurface {
         let egl_surface = WlEglSurface::new(wl_surface.id(), width as i32, height as i32)
             .context("Failed to create WlEglSurface")?;
 
-        let egl_window_surface = egl_ctx.create_window_surface(
-            egl_surface.ptr() as egl::NativeWindowType
-        )?;
+        let egl_window_surface =
+            egl_ctx.create_window_surface(egl_surface.ptr() as egl::NativeWindowType)?;
 
         Ok(Self {
             wl_surface,
@@ -99,7 +102,8 @@ impl MirrorSurface {
         if pending.0 != self.width || pending.1 != self.height {
             self.width = pending.0;
             self.height = pending.1;
-            self.egl_surface.resize(self.width as i32, self.height as i32, 0, 0);
+            self.egl_surface
+                .resize(self.width as i32, self.height as i32, 0, 0);
             true
         } else {
             false
@@ -121,7 +125,11 @@ impl Dispatch<ZwlrLayerSurfaceV1, SurfaceData> for AppState {
         _qh: &QueueHandle<Self>,
     ) {
         match event {
-            zwlr_layer_surface_v1::Event::Configure { serial, width, height } => {
+            zwlr_layer_surface_v1::Event::Configure {
+                serial,
+                width,
+                height,
+            } => {
                 surface.ack_configure(serial);
                 if width > 0 && height > 0 {
                     *data.pending_size.lock().unwrap() = (width, height);
@@ -144,7 +152,8 @@ impl Dispatch<wl_surface::WlSurface, ()> for AppState {
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }
 
 impl Drop for MirrorSurface {

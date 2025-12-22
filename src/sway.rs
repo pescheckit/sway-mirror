@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process::Command;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 
 #[derive(Debug, Deserialize)]
 struct SwayWorkspace {
@@ -47,11 +47,14 @@ impl WorkspaceState {
             .context("Failed to run swaymsg")?;
 
         if !output.status.success() {
-            anyhow::bail!("swaymsg failed: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "swaymsg failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
 
-        let workspaces: Vec<SwayWorkspace> = serde_json::from_slice(&output.stdout)
-            .context("Failed to parse swaymsg output")?;
+        let workspaces: Vec<SwayWorkspace> =
+            serde_json::from_slice(&output.stdout).context("Failed to parse swaymsg output")?;
 
         // Store original mapping
         let original_mapping: HashMap<String, String> = workspaces
@@ -94,10 +97,8 @@ impl WorkspaceState {
     /// Save workspace state to disk
     fn save_to_file(&self) -> Result<()> {
         let path = get_state_file_path();
-        let json = serde_json::to_string(self)
-            .context("Failed to serialize workspace state")?;
-        fs::write(&path, json)
-            .context("Failed to write workspace state file")?;
+        let json = serde_json::to_string(self).context("Failed to serialize workspace state")?;
+        fs::write(&path, json).context("Failed to write workspace state file")?;
         Ok(())
     }
 
@@ -107,10 +108,9 @@ impl WorkspaceState {
         if !path.exists() {
             return Ok(None);
         }
-        let json = fs::read_to_string(&path)
-            .context("Failed to read workspace state file")?;
-        let state: Self = serde_json::from_str(&json)
-            .context("Failed to parse workspace state file")?;
+        let json = fs::read_to_string(&path).context("Failed to read workspace state file")?;
+        let state: Self =
+            serde_json::from_str(&json).context("Failed to parse workspace state file")?;
         Ok(Some(state))
     }
 
@@ -142,8 +142,12 @@ impl WorkspaceState {
             .context("Failed to run swaymsg")?;
 
         if !result.status.success() {
-            eprintln!("Warning: Failed to move workspace {} to {}: {}",
-                workspace, output, String::from_utf8_lossy(&result.stderr));
+            eprintln!(
+                "Warning: Failed to move workspace {} to {}: {}",
+                workspace,
+                output,
+                String::from_utf8_lossy(&result.stderr)
+            );
         }
 
         Ok(())
@@ -157,8 +161,8 @@ impl WorkspaceState {
             .output()
             .context("Failed to run swaymsg")?;
 
-        let current_workspaces: Vec<SwayWorkspace> = serde_json::from_slice(&output.stdout)
-            .unwrap_or_default();
+        let current_workspaces: Vec<SwayWorkspace> =
+            serde_json::from_slice(&output.stdout).unwrap_or_default();
 
         // Move workspaces back to their original outputs
         for ws in &current_workspaces {

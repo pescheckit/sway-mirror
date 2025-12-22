@@ -1,16 +1,16 @@
 use std::collections::HashMap;
-use wayland_client::{Connection, Dispatch, QueueHandle, protocol::wl_output};
+use wayland_client::{protocol::wl_output, Connection, Dispatch, QueueHandle};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1;
 
 use super::connection::AppState;
 
 #[derive(Debug, Clone)]
 pub struct Output {
-    pub name: String,           // e.g., "DP-7", "eDP-1"
-    pub description: String,    // e.g., "Philips PHL 276E8V"
+    pub name: String,        // e.g., "DP-7", "eDP-1"
+    pub description: String, // e.g., "Philips PHL 276E8V"
     pub width: i32,
     pub height: i32,
-    pub refresh: i32,           // mHz
+    pub refresh: i32, // mHz
     pub x: i32,
     pub y: i32,
     pub scale: i32,
@@ -47,7 +47,8 @@ impl OutputManager {
     }
 
     pub fn add_output(&mut self, global_name: u32, wl_output: wl_output::WlOutput) {
-        self.outputs.insert(global_name, Output::new(global_name, wl_output));
+        self.outputs
+            .insert(global_name, Output::new(global_name, wl_output));
     }
 
     pub fn get_by_name(&self, name: &str) -> Option<&Output> {
@@ -71,7 +72,12 @@ impl Dispatch<wl_output::WlOutput, u32> for AppState {
     ) {
         if let Some(output) = state.output_manager.outputs.get_mut(global_name) {
             match event {
-                wl_output::Event::Mode { flags, width, height, refresh } => {
+                wl_output::Event::Mode {
+                    flags,
+                    width,
+                    height,
+                    refresh,
+                } => {
                     // Check if this is the current mode
                     if let wayland_client::WEnum::Value(mode_flags) = flags {
                         if mode_flags.contains(wl_output::Mode::Current) {
@@ -125,10 +131,7 @@ impl Dispatch<zxdg_output_v1::ZxdgOutputV1, u32> for AppState {
 }
 
 /// Request xdg_output for all outputs to get their names
-pub fn request_xdg_outputs(
-    state: &AppState,
-    qh: &QueueHandle<AppState>,
-) {
+pub fn request_xdg_outputs(state: &AppState, qh: &QueueHandle<AppState>) {
     if let Some(ref manager) = state.xdg_output_manager {
         for (global_name, output) in &state.output_manager.outputs {
             manager.get_xdg_output(&output.wl_output, qh, *global_name);
