@@ -13,6 +13,7 @@ pub struct DmabufPlane {
     pub fd: RawFd,
     pub offset: u32,
     pub stride: u32,
+    #[allow(dead_code)]
     pub modifier: u64,
 }
 
@@ -22,6 +23,7 @@ pub struct CapturedFrame {
     pub height: u32,
     pub format: u32, // DRM fourcc
     pub planes: Vec<DmabufPlane>,
+    #[allow(dead_code)]
     pub fds: Vec<OwnedFd>, // Keep fds alive
 }
 

@@ -197,8 +197,8 @@ impl EglContext {
                 gl::STATIC_DRAW,
             );
 
-            let pos_loc = gl::GetAttribLocation(self.program, b"pos\0".as_ptr() as *const i8);
-            let tex_loc = gl::GetAttribLocation(self.program, b"tex\0".as_ptr() as *const i8);
+            let pos_loc = gl::GetAttribLocation(self.program, c"pos".as_ptr());
+            let tex_loc = gl::GetAttribLocation(self.program, c"tex".as_ptr());
 
             gl::EnableVertexAttribArray(pos_loc as u32);
             gl::VertexAttribPointer(
@@ -341,10 +341,11 @@ impl EglContext {
                     plane.offset as i32,
                     EGL_DMA_BUF_PLANE0_PITCH_EXT,
                     plane.stride as i32,
-                    egl::NONE as i32,
+                    egl::NONE,
                 ];
 
                 // Use eglCreateImageKHR
+                #[allow(improper_ctypes_definitions)]
                 type CreateImageKHR = unsafe extern "C" fn(
                     egl::Display,
                     *mut c_void, // EGLContext as raw pointer
@@ -391,6 +392,7 @@ impl EglContext {
                 gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
 
                 // Destroy EGL image
+                #[allow(improper_ctypes_definitions)]
                 type DestroyImageKHR = unsafe extern "C" fn(egl::Display, *mut c_void) -> u32;
                 let destroy_image: DestroyImageKHR = std::mem::transmute(
                     self.egl

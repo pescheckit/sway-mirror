@@ -15,6 +15,7 @@ pub struct Output {
     pub y: i32,
     pub scale: i32,
     pub wl_output: wl_output::WlOutput,
+    #[allow(dead_code)]
     pub global_name: u32,
 }
 
@@ -73,19 +74,14 @@ impl Dispatch<wl_output::WlOutput, u32> for AppState {
         if let Some(output) = state.output_manager.outputs.get_mut(global_name) {
             match event {
                 wl_output::Event::Mode {
-                    flags,
+                    flags: wayland_client::WEnum::Value(mode_flags),
                     width,
                     height,
                     refresh,
-                } => {
-                    // Check if this is the current mode
-                    if let wayland_client::WEnum::Value(mode_flags) = flags {
-                        if mode_flags.contains(wl_output::Mode::Current) {
-                            output.width = width;
-                            output.height = height;
-                            output.refresh = refresh;
-                        }
-                    }
+                } if mode_flags.contains(wl_output::Mode::Current) => {
+                    output.width = width;
+                    output.height = height;
+                    output.refresh = refresh;
                 }
                 wl_output::Event::Scale { factor } => {
                     output.scale = factor;
