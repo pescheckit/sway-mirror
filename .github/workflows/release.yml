@@ -49,7 +49,7 @@ jobs:
             > debian/changelog
 
       - name: Build .deb package
-        run: dpkg-buildpackage -us -uc -b
+        run: dpkg-buildpackage -us -uc -b -d
 
       - name: Prepare artifacts
         run: |
