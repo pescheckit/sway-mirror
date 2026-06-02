@@ -231,7 +231,7 @@ impl EglContext {
 
     unsafe fn compile_shader(&self, shader_type: u32, source: &str) -> Result<u32> {
         let shader = gl::CreateShader(shader_type);
-        let source_ptr = source.as_ptr() as *const i8;
+        let source_ptr = source.as_ptr() as *const gl::types::GLchar;
         let source_len = source.len() as i32;
         gl::ShaderSource(shader, 1, &source_ptr, &source_len);
         gl::CompileShader(shader);
@@ -247,7 +247,7 @@ impl EglContext {
                 shader,
                 len,
                 std::ptr::null_mut(),
-                buf.as_mut_ptr() as *mut i8,
+                buf.as_mut_ptr() as *mut gl::types::GLchar,
             );
             bail!("Shader compile error: {}", String::from_utf8_lossy(&buf));
         }
