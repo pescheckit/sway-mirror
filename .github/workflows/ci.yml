@@ -72,6 +72,11 @@ jobs:
             image: opensuse/tumbleweed
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
+    env:
+      # Set PATH explicitly: writing to $GITHUB_PATH inside a container can drop
+      # the container's standard dirs (breaking the step shell). Include both the
+      # standard dirs and cargo's bin (containers run as root, so HOME=/root).
+      PATH: /root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - name: Install system dependencies (Debian)
         if: matrix.distro == 'debian'
@@ -103,8 +108,8 @@ jobs:
 
       - name: Setup Rust
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          # cargo is on PATH via the job-level env above (/root/.cargo/bin)
 
       - name: Build
         run: cargo build --release
