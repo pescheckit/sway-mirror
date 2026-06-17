@@ -73,10 +73,13 @@ jobs:
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
     env:
-      # Set PATH explicitly: writing to $GITHUB_PATH inside a container can drop
-      # the container's standard dirs (breaking the step shell). Include both the
-      # standard dirs and cargo's bin (containers run as root, so HOME=/root).
-      PATH: /root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      # Pin rustup/cargo to a fixed location instead of $HOME: in a container job
+      # GitHub sets HOME=/github/home, so a hardcoded /root path would be wrong.
+      # Set PATH explicitly too — writing to $GITHUB_PATH inside a container can
+      # drop the container's standard dirs (breaking the step shell).
+      CARGO_HOME: /usr/local/cargo
+      RUSTUP_HOME: /usr/local/rustup
+      PATH: /usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - name: Install system dependencies (Debian)
         if: matrix.distro == 'debian'
@@ -108,8 +111,9 @@ jobs:
 
       - name: Setup Rust
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-          # cargo is on PATH via the job-level env above (/root/.cargo/bin)
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --no-modify-path
+          # rustup installs to $CARGO_HOME/bin (/usr/local/cargo/bin), already on PATH above
 
       - name: Build
         run: cargo build --release
