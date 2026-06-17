@@ -10,11 +10,14 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Full gate across architectures. The aarch64 leg catches platform-dependent
+  # type issues (e.g. c_char signedness) that x86_64-only CI would miss.
   build:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-22.04]
-    runs-on: ${{ matrix.os }}
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,6 +29,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -36,7 +41,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
         run: cargo build --release
@@ -49,6 +54,63 @@ jobs:
 
       - name: Clippy
         run: cargo clippy -- -D warnings
+
+  # Build + test across distros to catch package-name / library differences.
+  # fmt + clippy stay in the `build` job only, to avoid toolchain-version skew.
+  distros:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: debian
+            image: debian:stable
+          - distro: fedora
+            image: fedora:latest
+          - distro: arch
+            image: archlinux:latest
+          - distro: opensuse
+            image: opensuse/tumbleweed
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install system dependencies (Debian)
+        if: matrix.distro == 'debian'
+        run: |
+          apt-get update
+          apt-get install -y curl build-essential pkg-config \
+            libwayland-dev libgbm-dev libegl1-mesa-dev libdrm-dev
+
+      - name: Install system dependencies (Fedora)
+        if: matrix.distro == 'fedora'
+        run: |
+          dnf install -y curl gcc pkgconf-pkg-config \
+            wayland-devel mesa-libgbm-devel mesa-libEGL-devel libdrm-devel
+
+      - name: Install system dependencies (Arch)
+        if: matrix.distro == 'arch'
+        run: |
+          pacman -Syu --noconfirm curl gcc pkgconf \
+            wayland wayland-protocols mesa libdrm
+
+      - name: Install system dependencies (openSUSE)
+        if: matrix.distro == 'opensuse'
+        run: |
+          zypper -n install curl gcc pkg-config \
+            wayland-devel libgbm-devel Mesa-libEGL-devel libdrm-devel
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test
 
   shellcheck:
     runs-on: ubuntu-latest
