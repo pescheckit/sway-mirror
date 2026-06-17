@@ -103,6 +103,14 @@ jobs:
       - name: Install system dependencies (openSUSE)
         if: matrix.distro == 'opensuse'
         run: |
+          # The opensuse/tumbleweed image ships pre-cached repo metadata that
+          # goes stale: its baked-in repomd.xml references snapshot files (e.g.
+          # appdata.xml.gz) that have since been rotated off the mirrors, so a
+          # plain refresh hangs fetching files that no longer exist (Curl 28).
+          # Clear the cached metadata first to force a fresh fetch of the
+          # current snapshot. See openSUSE/docker-containers#57.
+          zypper clean --all
+          zypper --non-interactive --gpg-auto-import-keys refresh
           zypper -n install curl gcc pkg-config \
             wayland-devel libgbm-devel Mesa-libEGL-devel libdrm-devel
 
