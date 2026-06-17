@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get version
         run: |
@@ -61,7 +61,7 @@ jobs:
           sha256sum sway-mirror-linux-x86_64 > sway-mirror-linux-x86_64.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-artifacts
           path: dist/
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get version
         run: |
@@ -80,13 +80,13 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-artifacts
           path: ./dist
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           name: v${{ env.VERSION }}
           files: |
@@ -146,7 +146,7 @@ jobs:
 
       - name: Checkout
         if: steps.check-secret.outputs.exists == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get version
         if: steps.check-secret.outputs.exists == 'true'

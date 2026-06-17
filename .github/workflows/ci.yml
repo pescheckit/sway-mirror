@@ -10,14 +10,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Full gate across architectures. The aarch64 leg catches platform-dependent
+  # type issues (e.g. c_char signedness) that x86_64-only CI would miss.
   build:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-22.04]
-    runs-on: ${{ matrix.os }}
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -26,9 +29,11 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -36,7 +41,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
         run: cargo build --release
@@ -50,11 +55,85 @@ jobs:
       - name: Clippy
         run: cargo clippy -- -D warnings
 
+  # Build + test across distros to catch package-name / library differences.
+  # fmt + clippy stay in the `build` job only, to avoid toolchain-version skew.
+  distros:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: debian
+            image: debian:stable
+          - distro: fedora
+            image: fedora:latest
+          - distro: arch
+            image: archlinux:latest
+          - distro: opensuse
+            image: opensuse/tumbleweed
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    env:
+      # Pin rustup/cargo to a fixed location instead of $HOME: in a container job
+      # GitHub sets HOME=/github/home, so a hardcoded /root path would be wrong.
+      # Set PATH explicitly too — writing to $GITHUB_PATH inside a container can
+      # drop the container's standard dirs (breaking the step shell).
+      CARGO_HOME: /usr/local/cargo
+      RUSTUP_HOME: /usr/local/rustup
+      PATH: /usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    steps:
+      - name: Install system dependencies (Debian)
+        if: matrix.distro == 'debian'
+        run: |
+          apt-get update
+          apt-get install -y curl build-essential pkg-config \
+            libwayland-dev libgbm-dev libegl1-mesa-dev libdrm-dev
+
+      - name: Install system dependencies (Fedora)
+        if: matrix.distro == 'fedora'
+        run: |
+          dnf install -y curl gcc pkgconf-pkg-config \
+            wayland-devel mesa-libgbm-devel mesa-libEGL-devel libdrm-devel
+
+      - name: Install system dependencies (Arch)
+        if: matrix.distro == 'arch'
+        run: |
+          pacman -Syu --noconfirm curl gcc pkgconf \
+            wayland wayland-protocols mesa libdrm
+
+      - name: Install system dependencies (openSUSE)
+        if: matrix.distro == 'opensuse'
+        run: |
+          # The opensuse/tumbleweed image ships pre-cached repo metadata that
+          # goes stale: its baked-in repomd.xml references snapshot files (e.g.
+          # appdata.xml.gz) that have since been rotated off the mirrors, so a
+          # plain refresh hangs fetching files that no longer exist (Curl 28).
+          # Clear the cached metadata first to force a fresh fetch of the
+          # current snapshot. See openSUSE/docker-containers#57.
+          zypper clean --all
+          zypper --non-interactive --gpg-auto-import-keys refresh
+          zypper -n install curl gcc pkg-config \
+            wayland-devel libgbm-devel Mesa-libEGL-devel libdrm-devel
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable --no-modify-path
+          # rustup installs to $CARGO_HOME/bin (/usr/local/cargo/bin), already on PATH above
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test
+
   shellcheck:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Validate PKGBUILD syntax
         run: bash -n aur/PKGBUILD

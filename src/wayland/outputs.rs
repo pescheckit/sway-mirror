@@ -114,11 +114,9 @@ impl Dispatch<zxdg_output_v1::ZxdgOutputV1, u32> for AppState {
                     output.x = x;
                     output.y = y;
                 }
-                zxdg_output_v1::Event::Name { name } => {
-                    // xdg_output name takes precedence
-                    if !name.is_empty() {
-                        output.name = name;
-                    }
+                // xdg_output name takes precedence
+                zxdg_output_v1::Event::Name { name } if !name.is_empty() => {
+                    output.name = name;
                 }
                 _ => {}
             }
