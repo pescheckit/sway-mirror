@@ -11,7 +11,7 @@ pkgbase = sway-mirror
 	depends = wayland
 	depends = libgbm
 	depends = libdrm
-	source = sway-mirror-0.1.0.tar.gz::https://github.com/pescheckit/sway-mirror/archive/refs/tags/v0.1.0.tar.gz
+	source = sway-mirror-0.1.0.tar.gz::https://github.com/pescheckit/sway-mirror/archive/refs/tags/0.1.0.tar.gz
 	sha256sums = SKIP
 
 pkgname = sway-mirror
