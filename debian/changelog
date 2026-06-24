@@ -1,3 +1,9 @@
+sway-mirror (1.0.3-1) unstable; urgency=medium
+
+  * Release 1.0.3
+
+ -- Bram <bram+sway@pescheck.io>  Wed, 24 Jun 2026 15:22:54 +0000
+
 sway-mirror (0.1.0-1) unstable; urgency=medium
 
   * Initial release
