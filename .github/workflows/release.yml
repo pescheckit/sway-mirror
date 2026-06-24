@@ -3,18 +3,29 @@ name: Release
 on:
   push:
     tags:
-      - 'v[0-9]*'
       - '[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to (re)sync to AUR, e.g. 1.0.2'
+        required: true
+      pkgrel:
+        description: 'Package release number (bump when re-syncing an existing version)'
+        required: false
+        default: '1'
 
 permissions:
   contents: write
 
 jobs:
   build-linux:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Get version
         run: |
@@ -30,23 +41,40 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Update version in Cargo.toml
+      - name: Set version from tag
         run: |
-          sed -i 's/^version = ".*"/version = "${{ env.VERSION }}"/' Cargo.toml
+          VERSION="${{ env.VERSION }}"
+          # Cargo manifest (Cargo.lock's own entry is refreshed by the build step below)
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          # Debian changelog: prepend a real release entry, keep history
+          DATE=$(date -R)
+          {
+            printf '%s\n\n  * Release %s\n\n -- Bram <bram+sway@pescheck.io>  %s\n\n' \
+              "sway-mirror ($VERSION-1) unstable; urgency=medium" "$VERSION" "$DATE"
+            cat debian/changelog
+          } > debian/changelog.new
+          mv debian/changelog.new debian/changelog
+          # AUR source-of-truth files (the update-aur job copies these verbatim)
+          sed -i "s/^pkgver=.*/pkgver=$VERSION/;s/^pkgrel=.*/pkgrel=1/" aur/PKGBUILD
+          sed -i "s/^\tpkgver = .*/\tpkgver = $VERSION/;s/^\tpkgrel = .*/\tpkgrel = 1/" aur/.SRCINFO
+          sed -i "s|sway-mirror-.*|sway-mirror-$VERSION.tar.gz::https://github.com/pescheckit/sway-mirror/archive/refs/tags/$VERSION.tar.gz|" aur/.SRCINFO
 
       - name: Build release binary
         run: cargo build --release
 
-      - name: Update debian changelog
+      - name: Commit version bump to main
         run: |
-          DATE=$(date -R)
-          printf '%s\n' \
-            "sway-mirror (${{ env.VERSION }}-1) unstable; urgency=medium" \
-            "" \
-            "  * Release ${{ env.VERSION }}" \
-            "" \
-            " -- Bram <bram+sway@pescheck.io>  $DATE" \
-            > debian/changelog
+          VERSION="${{ env.VERSION }}"
+          git config user.name "Pescheckit Bot"
+          git config user.email "bram+sway@pescheck.io"
+          git add Cargo.toml Cargo.lock debian/changelog aur/PKGBUILD aur/.SRCINFO
+          if git diff --cached --quiet; then
+            echo "No version changes to commit"
+          else
+            git commit -m "chore(release): set version to $VERSION"
+            git push origin HEAD:main \
+              || echo "::warning::Could not fast-forward main; version bump not pushed (main may have advanced past the tag)"
+          fi
 
       - name: Build .deb package
         run: dpkg-buildpackage -us -uc -b -d
@@ -67,6 +95,7 @@ jobs:
           path: dist/
 
   create-release:
+    if: github.event_name == 'push'
     needs: build-linux
     runs-on: ubuntu-latest
     steps:
@@ -88,7 +117,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          name: v${{ env.VERSION }}
+          name: ${{ env.VERSION }}
           files: |
             dist/*.deb
             dist/*.deb.sha256
@@ -100,8 +129,8 @@ jobs:
 
             ### Debian/Ubuntu
             ```bash
-            wget https://github.com/pescheckit/sway-mirror/releases/download/v${{ env.VERSION }}/sway-mirror_${{ env.VERSION }}_amd64.deb
-            wget https://github.com/pescheckit/sway-mirror/releases/download/v${{ env.VERSION }}/sway-mirror_${{ env.VERSION }}_amd64.deb.sha256
+            wget https://github.com/pescheckit/sway-mirror/releases/download/${{ env.VERSION }}/sway-mirror_${{ env.VERSION }}_amd64.deb
+            wget https://github.com/pescheckit/sway-mirror/releases/download/${{ env.VERSION }}/sway-mirror_${{ env.VERSION }}_amd64.deb.sha256
             sha256sum -c sway-mirror_${{ env.VERSION }}_amd64.deb.sha256
             sudo dpkg -i sway-mirror_${{ env.VERSION }}_amd64.deb
             sudo apt-get install -f
@@ -114,8 +143,8 @@ jobs:
 
             ### Binary Download
             ```bash
-            wget https://github.com/pescheckit/sway-mirror/releases/download/v${{ env.VERSION }}/sway-mirror-linux-x86_64
-            wget https://github.com/pescheckit/sway-mirror/releases/download/v${{ env.VERSION }}/sway-mirror-linux-x86_64.sha256
+            wget https://github.com/pescheckit/sway-mirror/releases/download/${{ env.VERSION }}/sway-mirror-linux-x86_64
+            wget https://github.com/pescheckit/sway-mirror/releases/download/${{ env.VERSION }}/sway-mirror-linux-x86_64.sha256
             sha256sum -c sway-mirror-linux-x86_64.sha256
             chmod +x sway-mirror-linux-x86_64
             sudo mv sway-mirror-linux-x86_64 /usr/local/bin/sway-mirror
@@ -130,6 +159,12 @@ jobs:
 
   update-aur:
     needs: create-release
+    # Run after a successful release (push), or standalone via workflow_dispatch to re-sync an
+    # existing version (e.g. a packaging-only fix at a higher pkgrel) entirely from CI/CD.
+    if: |
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && needs.create-release.result == 'success'))
     runs-on: ubuntu-latest
     steps:
       - name: Check if AUR secret exists
@@ -147,13 +182,23 @@ jobs:
       - name: Checkout
         if: steps.check-secret.outputs.exists == 'true'
         uses: actions/checkout@v6
+        with:
+          # main carries the version bump committed by build-linux (push) and is current on dispatch
+          ref: main
 
-      - name: Get version
+      - name: Resolve version
         if: steps.check-secret.outputs.exists == 'true'
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          VERSION="${VERSION#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            PKGREL="${{ github.event.inputs.pkgrel }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+            VERSION="${VERSION#v}"
+            PKGREL="1"
+          fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "PKGREL=$PKGREL" >> $GITHUB_ENV
 
       - name: Update AUR package
         if: steps.check-secret.outputs.exists == 'true'
@@ -167,38 +212,22 @@ jobs:
           printf '%s\n' "Host aur.archlinux.org" "  IdentityFile ~/.ssh/aur" "  User aur" >> ~/.ssh/config
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
 
-          # Clone AUR repo
+          # Clone AUR repo and overwrite with the repo's source-of-truth packaging files
           git clone ssh://aur@aur.archlinux.org/sway-mirror.git aur-repo
+          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
           cd aur-repo
 
-          # Update PKGBUILD
-          sed -i "s/^pkgver=.*/pkgver=${{ env.VERSION }}/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-
-          # Generate .SRCINFO
-          {
-            echo "pkgbase = sway-mirror"
-            echo $'\t'"pkgdesc = Fast zero-copy screen mirroring for Sway/wlroots"
-            echo $'\t'"pkgver = ${{ env.VERSION }}"
-            echo $'\t'"pkgrel = 1"
-            echo $'\t'"url = https://github.com/pescheckit/sway-mirror"
-            echo $'\t'"arch = x86_64"
-            echo $'\t'"arch = aarch64"
-            echo $'\t'"license = MIT"
-            echo $'\t'"makedepends = cargo"
-            echo $'\t'"makedepends = wayland-protocols"
-            echo $'\t'"depends = wayland"
-            echo $'\t'"depends = libgbm"
-            echo $'\t'"depends = libdrm"
-            echo $'\t'"source = sway-mirror-${{ env.VERSION }}.tar.gz::https://github.com/pescheckit/sway-mirror/archive/refs/tags/v${{ env.VERSION }}.tar.gz"
-            echo $'\t'"sha256sums = SKIP"
-            echo ""
-            echo "pkgname = sway-mirror"
-          } > .SRCINFO
+          VERSION="${{ env.VERSION }}"
+          PKGREL="${{ env.PKGREL }}"
+          # Re-stamp version/pkgrel and guarantee a v-free source URL so the live AUR can't drift
+          sed -i "s/^pkgver=.*/pkgver=$VERSION/;s/^pkgrel=.*/pkgrel=$PKGREL/" PKGBUILD
+          sed -i "s|refs/tags/v\$pkgver|refs/tags/\$pkgver|" PKGBUILD
+          sed -i "s/^\tpkgver = .*/\tpkgver = $VERSION/;s/^\tpkgrel = .*/\tpkgrel = $PKGREL/" .SRCINFO
+          sed -i "s|sway-mirror-.*|sway-mirror-$VERSION.tar.gz::https://github.com/pescheckit/sway-mirror/archive/refs/tags/$VERSION.tar.gz|" .SRCINFO
 
           # Commit and push
           git config user.name "Pescheckit Bot"
           git config user.email "bram+sway@pescheck.io"
           git add PKGBUILD .SRCINFO
-          git commit -m "Update to v${{ env.VERSION }}" || echo "No changes to commit"
+          git commit -m "Update to $VERSION-$PKGREL" || echo "No changes to commit"
           git push || echo "Push failed - may need to set up AUR package first"

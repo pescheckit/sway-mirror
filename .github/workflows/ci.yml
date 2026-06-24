@@ -137,3 +137,10 @@ jobs:
 
       - name: Validate PKGBUILD syntax
         run: bash -n aur/PKGBUILD
+
+      - name: Ensure source URL has no stray v-prefix
+        run: |
+          if grep -q 'refs/tags/v\$pkgver' aur/PKGBUILD; then
+            echo "::error::aur/PKGBUILD source URL must use \$pkgver, not v\$pkgver (git tags have no v prefix)"
+            exit 1
+          fi
