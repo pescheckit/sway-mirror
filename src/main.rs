@@ -13,7 +13,7 @@ use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use capture::DmabufCapture;
+use capture::{CaptureMethod, Capturer};
 use render::{EglContext, MirrorSurface, ScaleMode};
 use sway::WorkspaceState;
 use wayland::outputs::request_xdg_outputs;
@@ -56,6 +56,30 @@ impl From<ScaleModeArg> for ScaleMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
+pub enum CaptureArg {
+    /// Best available, with automatic fallback to a CPU copy if zero-copy fails
+    #[default]
+    Auto,
+    /// wlr-export-dmabuf: zero-copy GPU capture
+    ExportDmabuf,
+    /// ext-image-copy-capture: newer standard protocol (zero-copy when possible)
+    ImageCopy,
+    /// wlr-screencopy: CPU copy via shared memory, works on any GPU
+    Screencopy,
+}
+
+impl From<CaptureArg> for CaptureMethod {
+    fn from(arg: CaptureArg) -> Self {
+        match arg {
+            CaptureArg::Auto => CaptureMethod::Auto,
+            CaptureArg::ExportDmabuf => CaptureMethod::ExportDmabuf,
+            CaptureArg::ImageCopy => CaptureMethod::ImageCopy,
+            CaptureArg::Screencopy => CaptureMethod::Screencopy,
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "sway-mirror")]
 #[command(about = "Fast zero-copy screen mirroring for Sway")]
@@ -71,9 +95,19 @@ struct Cli {
     #[arg(short, long)]
     list: bool,
 
-    /// Include cursor in mirror
-    #[arg(long, default_value = "true")]
+    /// Include cursor in mirror (--cursor false to hide it)
+    #[arg(
+        long,
+        default_value_t = true,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        action = clap::ArgAction::Set
+    )]
     cursor: bool,
+
+    /// Screen capture method
+    #[arg(short, long, value_enum, default_value = "auto")]
+    capture: CaptureArg,
 
     /// Scaling mode for the mirrored content
     #[arg(short, long, value_enum, default_value = "fit")]
@@ -273,22 +307,6 @@ fn main() -> Result<()> {
         println!("  {} ({}x{})", name, w, h);
     }
 
-    // Move all workspaces to source output
-    let workspace_state = if cli.workspaces {
-        match WorkspaceState::capture_and_move_to_source(&source_name) {
-            Ok(state) => {
-                println!("Moved all workspaces to {}", source_name);
-                Some(state)
-            }
-            Err(e) => {
-                eprintln!("Warning: Could not move workspaces: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     // Set up Ctrl+C handler
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
@@ -347,70 +365,101 @@ fn main() -> Result<()> {
     }
     conn.roundtrip()?;
 
-    // Setup dmabuf capture
-    let capture = DmabufCapture::new();
+    // Set up screen capture
+    let method: CaptureMethod = cli.capture.into();
+    let egl_modifiers = egl_ctx.importable_modifiers(&capture::shm::SUPPORTED_SHM_FORMATS);
+    let mut capturer = Capturer::new(
+        method,
+        &mut conn,
+        &source_output,
+        cli.cursor,
+        &egl_modifiers,
+    )?;
+    println!("Capture method: {}", capturer.name());
+
+    // Move all workspaces to source output
+    let workspace_state = if cli.workspaces {
+        match WorkspaceState::capture_and_move_to_source(&source_name) {
+            Ok(state) => {
+                println!("Moved all workspaces to {}", source_name);
+                Some(state)
+            }
+            Err(e) => {
+                eprintln!("Warning: Could not move workspaces: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Write PID file
     write_pid_file()?;
 
     println!("Mirror active. Press Ctrl+C or use --stop to stop.");
 
+    let scale_mode: ScaleMode = cli.scale.into();
     let mut logged_format = false;
 
-    // Main loop
-    while running.load(Ordering::SeqCst) {
-        // Check for resize
-        for surface in &mut surfaces {
-            surface.resize_if_needed();
-        }
+    // Main loop; errors still run the cleanup below
+    let result: Result<()> = (|| {
+        while running.load(Ordering::SeqCst) {
+            // Check for resize
+            for surface in &mut surfaces {
+                surface.resize_if_needed();
+            }
 
-        // Request frame capture
-        {
-            let dmabuf_manager =
-                conn.state.dmabuf_manager.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("zwlr_export_dmabuf_manager_v1 not available")
-                })?;
-            let qh = conn.queue_handle();
-            capture.request_frame(dmabuf_manager, &source_output, &qh, cli.cursor);
-        }
+            let zero_copy = capturer.is_zero_copy();
+            let outcome: Result<bool> = (|| {
+                let Some(frame) = capturer.next_frame(&mut conn, &running)? else {
+                    return Ok(false);
+                };
 
-        // Wait for frame
-        while !capture.is_done() && running.load(Ordering::SeqCst) {
-            conn.roundtrip()?;
-        }
+                if !logged_format {
+                    println!("Capture format: {}", frame.describe());
+                    logged_format = true;
+                }
 
-        // Render to all targets
-        if let Some(frame) = capture.take_frame() {
-            if !logged_format {
-                let fourcc: String = frame
-                    .format
-                    .to_le_bytes()
+                let targets: Vec<_> = surfaces
                     .iter()
-                    .map(|&b| b as char)
+                    .map(|s| (s.egl_window_surface, s.width as i32, s.height as i32))
                     .collect();
-                println!(
-                    "Capture format: {} modifier: 0x{:016x} planes: {}",
-                    fourcc,
-                    frame.modifier,
-                    frame.planes.len()
-                );
-                logged_format = true;
-            }
-            let scale_mode: ScaleMode = cli.scale.into();
-            for surface in &surfaces {
-                egl_ctx.render_frame(
-                    &frame,
-                    surface.egl_window_surface,
-                    surface.width as i32,
-                    surface.height as i32,
-                    scale_mode,
-                )?;
-                surface.commit();
-            }
-        }
+                egl_ctx.render(&frame, &targets, scale_mode)?;
+                Ok(true)
+            })();
 
-        conn.dispatch()?;
-    }
+            match outcome {
+                Ok(true) => {
+                    for surface in &surfaces {
+                        surface.commit();
+                    }
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    // Only zero-copy failures have a CPU copy to fall back to
+                    if !zero_copy {
+                        return Err(e);
+                    }
+                    eprintln!("Warning: {} failed: {:#}", capturer.name(), e);
+                    let switch_protocol = method == CaptureMethod::Auto;
+                    if !capturer.fallback(&mut conn, &source_output, cli.cursor, switch_protocol) {
+                        return Err(if switch_protocol {
+                            e.context("no capture method left to fall back to")
+                        } else {
+                            e.context("use --capture auto to allow other capture methods")
+                        });
+                    }
+                    println!("Falling back to capture method: {}", capturer.name());
+                    logged_format = false;
+                }
+            }
+
+            conn.dispatch()?;
+        }
+        Ok(())
+    })();
+
+    drop(capturer);
 
     // Cleanup on exit
     println!("\nStopping mirror...");
@@ -434,5 +483,5 @@ fn main() -> Result<()> {
         WorkspaceState::remove_state_file();
     }
 
-    Ok(())
+    result
 }
