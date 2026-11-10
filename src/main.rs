@@ -80,7 +80,14 @@ struct Cli {
     scale: ScaleModeArg,
 
     /// Move all workspaces to source output while mirroring (restores on exit)
-    #[arg(short, long, default_value = "true")]
+    #[arg(
+        short,
+        long,
+        default_value_t = true,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        action = clap::ArgAction::Set
+    )]
     workspaces: bool,
 
     /// Stop a running sway-mirror instance
@@ -348,6 +355,8 @@ fn main() -> Result<()> {
 
     println!("Mirror active. Press Ctrl+C or use --stop to stop.");
 
+    let mut logged_format = false;
+
     // Main loop
     while running.load(Ordering::SeqCst) {
         // Check for resize
@@ -372,6 +381,21 @@ fn main() -> Result<()> {
 
         // Render to all targets
         if let Some(frame) = capture.take_frame() {
+            if !logged_format {
+                let fourcc: String = frame
+                    .format
+                    .to_le_bytes()
+                    .iter()
+                    .map(|&b| b as char)
+                    .collect();
+                println!(
+                    "Capture format: {} modifier: 0x{:016x} planes: {}",
+                    fourcc,
+                    frame.modifier,
+                    frame.planes.len()
+                );
+                logged_format = true;
+            }
             let scale_mode: ScaleMode = cli.scale.into();
             for surface in &surfaces {
                 egl_ctx.render_frame(
