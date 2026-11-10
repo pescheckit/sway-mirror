@@ -23,8 +23,7 @@ pub struct WorkspaceState {
 }
 
 fn get_state_file_path() -> PathBuf {
-    // Use XDG_RUNTIME_DIR (per-user, proper permissions)
-    // Falls back to XDG_STATE_HOME or ~/.local/state
+    // XDG_RUNTIME_DIR, falling back to XDG_STATE_HOME or ~/.local/state
     if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
         return PathBuf::from(format!("{}/sway-mirror-state.json", dir));
     }
