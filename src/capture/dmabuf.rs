@@ -16,9 +16,7 @@ pub const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
 /// zwlr_export_dmabuf_frame_v1 buffer_flags: y_invert
 const BUFFER_FLAG_Y_INVERT: u32 = 1;
 
-/// Consecutive "temporary" cancels before we give up. Compositors that
-/// can't export dmabufs at all (e.g. wlroots with the pixman renderer)
-/// cancel every frame as temporary; this is roughly one second's worth.
+/// ~1s of "temporary" cancels in a row means the compositor can't export dmabufs (e.g. pixman)
 const MAX_CONSECUTIVE_CANCELS: u32 = 60;
 
 #[derive(Debug, Clone)]
@@ -37,8 +35,7 @@ pub struct CapturedFrame {
     pub modifier: u64, // DRM format modifier (tiling/compression layout)
     pub planes: Vec<DmabufPlane>,
     pub y_invert: bool,
-    /// Keeps the plane fds alive when this frame owns them (export-dmabuf).
-    /// Empty when the fds are owned elsewhere (ext-image-copy buffers).
+    /// Owned plane fds (export-dmabuf); empty when owned elsewhere (ext-image-copy)
     #[allow(dead_code)]
     pub fds: Vec<OwnedFd>,
 }
@@ -101,8 +98,7 @@ impl ExportDmabufCapture {
         })
     }
 
-    /// Capture the next frame. Returns Ok(None) if interrupted or the frame
-    /// was cancelled temporarily (caller should simply try again).
+    /// Capture the next frame; Ok(None) if interrupted or temporarily cancelled
     pub fn next_frame(
         &mut self,
         conn: &mut WaylandConnection,

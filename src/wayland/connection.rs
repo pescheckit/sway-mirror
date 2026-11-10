@@ -110,11 +110,7 @@ impl WaylandConnection {
         Ok(())
     }
 
-    /// Dispatch pending events, or wait up to `timeout_ms` for new ones.
-    ///
-    /// Unlike a roundtrip this does not spin when the compositor has nothing
-    /// to send (e.g. ext-image-copy-capture waiting for damage), and unlike
-    /// a blocking dispatch it returns regularly so Ctrl+C is noticed.
+    /// Dispatch events, waiting up to `timeout_ms` so idle waits don't spin or block Ctrl+C
     pub fn dispatch_timeout(&mut self, timeout_ms: i32) -> Result<()> {
         if self.queue.dispatch_pending(&mut self.state)? > 0 {
             return Ok(());

@@ -26,8 +26,7 @@ pub struct ScreencopyState {
 
 pub struct ScreencopyData(Arc<Mutex<ScreencopyState>>);
 
-/// CPU-copy capture via zwlr_screencopy_manager_v1 into shared memory.
-/// Slower than dmabuf, but works regardless of GPU / driver combination.
+/// wlr-screencopy capture into shared memory: slower, but works on any GPU
 pub struct ScreencopyCapture {
     manager: ZwlrScreencopyManagerV1,
     shm: wl_shm::WlShm,
@@ -97,8 +96,7 @@ impl ScreencopyCapture {
             ScreencopyData(self.state.clone()),
         );
 
-        // v3 announces all buffer types then sends buffer_done;
-        // v1/v2 only send a single shm buffer event.
+        // v3 ends buffer negotiation with buffer_done; v1/v2 send a single buffer event
         let has_buffer_done = frame.version() >= 3;
         if !self.wait(conn, running, |s| {
             s.failed || s.buffer_done || (!has_buffer_done && s.shm_info.is_some())

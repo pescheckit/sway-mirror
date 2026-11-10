@@ -94,8 +94,7 @@ impl IcBuffer {
     }
 }
 
-/// Capture via ext-image-copy-capture-v1 (the successor of wlr-export-dmabuf
-/// and wlr-screencopy). Uses GPU buffers when possible, shm otherwise.
+/// ext-image-copy-capture-v1 capture: GPU buffers when possible, shm otherwise
 pub struct ImageCopyCapture {
     session: ExtImageCopyCaptureSessionV1,
     source: ExtImageCaptureSourceV1,
@@ -197,11 +196,7 @@ impl ImageCopyCapture {
         }
     }
 
-    /// Stop using GPU buffers (e.g. because EGL can't import them).
-    ///
-    /// Starts a fresh session: within an existing one the compositor only
-    /// sends a frame once the screen changes, which would leave the target
-    /// blank on a static screen.
+    /// Switch to shm with a fresh session, so a static screen still gets a first frame
     pub fn force_shm(&mut self, conn: &WaylandConnection) {
         self.allow_dmabuf = false;
         self.buffers.clear();
@@ -460,8 +455,7 @@ impl Drop for ImageCopyCapture {
     }
 }
 
-/// Choose a format both sides support, returning the modifiers to allocate
-/// with (empty = implicit modifier).
+/// Pick a format both sides support and its modifiers (empty = implicit modifier)
 fn pick_dmabuf_format(
     c: &Constraints,
     egl_modifiers: &HashMap<u32, Vec<u64>>,

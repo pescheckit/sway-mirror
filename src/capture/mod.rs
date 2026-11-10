@@ -74,8 +74,7 @@ pub enum Capturer {
 }
 
 impl Capturer {
-    /// Create the capturer for `method`. With `Auto`, tries export-dmabuf,
-    /// then ext-image-copy-capture, then wlr-screencopy.
+    /// Create the capturer; `Auto` tries export-dmabuf, image-copy, then screencopy
     pub fn new(
         method: CaptureMethod,
         conn: &mut WaylandConnection,
@@ -130,10 +129,7 @@ impl Capturer {
         })
     }
 
-    /// Switch to a CPU copy after a dmabuf capture/import failure.
-    /// ext-image-copy-capture can switch to shm buffers itself; switching
-    /// to another protocol only happens if `switch_protocol` is set.
-    /// Returns false if there is nothing left to fall back to.
+    /// Switch to a CPU copy after a zero-copy failure; false if no fallback is left
     pub fn fallback(
         &mut self,
         conn: &mut WaylandConnection,
@@ -185,8 +181,7 @@ impl Capturer {
         }
     }
 
-    /// Wait for the next frame. Ok(None) means "nothing this time" (Ctrl+C
-    /// or a transient failure) and the caller should check `running`.
+    /// Wait for the next frame; Ok(None) on Ctrl+C or a transient failure
     pub fn next_frame(
         &mut self,
         conn: &mut WaylandConnection,

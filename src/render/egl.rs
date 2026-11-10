@@ -473,8 +473,7 @@ impl EglContext {
             frame.format as i32,
         ];
 
-        // Tiled/compressed layouts (e.g. Intel Arc Tile4 + CCS, AMD DCC) need
-        // the explicit modifier, and may carry extra auxiliary planes.
+        // Tiled/compressed layouts (Intel Tile4+CCS, AMD DCC) need the modifier and all planes
         let pass_modifier = self.supports_modifiers && frame.modifier != DRM_FORMAT_MOD_INVALID;
 
         for (plane, keys) in frame.planes.iter().zip(EGL_DMA_BUF_PLANE_ATTRIBS.iter()) {
@@ -514,8 +513,7 @@ impl EglContext {
             );
         }
 
-        // Some modifiers (e.g. on NVIDIA, Mali AFBC) can only be sampled
-        // through GL_TEXTURE_EXTERNAL_OES.
+        // Some modifiers (NVIDIA, Mali AFBC) can only be sampled as GL_TEXTURE_EXTERNAL_OES
         let external = self.is_external_only(frame.format, frame.modifier);
         if external && self.program_external.is_none() {
             self.destroy_image(image);
@@ -550,8 +548,7 @@ impl EglContext {
     }
 
     unsafe fn upload_shm(&mut self, frame: &ShmFrame) -> Result<BoundTexture> {
-        // GLES2 only takes RGBA bytes; [AX]RGB8888 is BGRA in memory, so swap
-        // red/blue in the shader instead of on the CPU.
+        // [AX]RGB8888 is BGRA in memory; swap red/blue in the shader
         let swizzle = match frame.format {
             DRM_FORMAT_XRGB8888 | DRM_FORMAT_ARGB8888 => true,
             DRM_FORMAT_XBGR8888 | DRM_FORMAT_ABGR8888 => false,
@@ -627,11 +624,7 @@ impl EglContext {
         }
     }
 
-    /// Render `frame` to every target (surface, width, height).
-    ///
-    /// The frame is imported/uploaded once and drawn to all targets. An
-    /// error means nothing was drawn, so the caller can fall back to
-    /// another capture method.
+    /// Import `frame` once and draw it to all targets; on error nothing was drawn
     pub fn render(
         &mut self,
         frame: &Frame,
@@ -702,8 +695,7 @@ unsafe fn set_texture_params(target: u32) {
     gl::TexParameteri(target, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
 }
 
-/// Viewport (x, y, w, h) for drawing a src_w x src_h image onto a
-/// dst_w x dst_h surface.
+/// Viewport (x, y, w, h) for drawing a src_w x src_h image on a dst_w x dst_h surface
 pub fn compute_viewport(
     scale_mode: ScaleMode,
     src_w: u32,

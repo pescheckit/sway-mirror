@@ -27,8 +27,8 @@ Fast zero-copy screen mirroring for Sway/wlroots compositors.
 
 | GPU | Status |
 |-----|--------|
-| AMD (Radeon, APUs) | Zero-copy, tested |
-| Intel integrated and Arc (Xe/Xe2) | Zero-copy (tiled buffers via DRM format modifiers); Arc confirmation pending in #4 |
+| AMD (Radeon, APUs) | Supported (zero-copy) |
+| Intel integrated and Arc (Xe/Xe2) | Supported (zero-copy) |
 | NVIDIA (proprietary driver) | Zero-copy expected; Sway itself needs `--unsupported-gpu` |
 | NVIDIA nouveau, ARM SoCs (Adreno, Mali, Raspberry Pi, Apple Silicon) | Zero-copy expected, incl. buffers that require `GL_OES_EGL_image_external` |
 | Hybrid laptops / anything else | Falls back to CPU copy automatically if zero-copy fails |
