@@ -557,8 +557,10 @@ fn parse_dev_t(bytes: &[u8]) -> Option<u64> {
 
 fn parse_modifiers(bytes: &[u8]) -> Vec<u64> {
     bytes
-        .chunks_exact(8)
-        .map(|c| u64::from_ne_bytes(c.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| u64::from_ne_bytes(*c))
         .collect()
 }
 
