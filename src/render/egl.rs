@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use khronos_egl as egl;
 use std::ffi::c_void;
 
-use crate::capture::CapturedFrame;
+use crate::capture::{CapturedFrame, DRM_FORMAT_MOD_INVALID};
 use crate::render::ScaleMode;
 
 pub struct EglContext {
@@ -14,14 +14,20 @@ pub struct EglContext {
     pub program: u32,
     pub vao: u32,
     pub texture: u32,
+    /// EGL_EXT_image_dma_buf_import_modifiers is available
+    pub supports_modifiers: bool,
 }
 
 // EGL extensions for dmabuf import
 const EGL_LINUX_DMA_BUF_EXT: u32 = 0x3270;
 const EGL_LINUX_DRM_FOURCC_EXT: i32 = 0x3271;
-const EGL_DMA_BUF_PLANE0_FD_EXT: i32 = 0x3272;
-const EGL_DMA_BUF_PLANE0_OFFSET_EXT: i32 = 0x3273;
-const EGL_DMA_BUF_PLANE0_PITCH_EXT: i32 = 0x3274;
+// Per-plane attributes: [fd, offset, pitch, modifier_lo, modifier_hi]
+const EGL_DMA_BUF_PLANE_ATTRIBS: [[i32; 5]; 4] = [
+    [0x3272, 0x3273, 0x3274, 0x3443, 0x3444],
+    [0x3275, 0x3276, 0x3277, 0x3445, 0x3446],
+    [0x3278, 0x3279, 0x327A, 0x3447, 0x3448],
+    [0x3440, 0x3441, 0x3442, 0x3449, 0x344A],
+];
 const EGL_WIDTH: i32 = 0x3057;
 const EGL_HEIGHT: i32 = 0x3056;
 const EGL_NO_CONTEXT: *mut c_void = std::ptr::null_mut();
@@ -77,6 +83,21 @@ impl EglContext {
             .create_context(display, config, None, &context_attribs)
             .context("Failed to create EGL context")?;
 
+        let supports_modifiers = egl
+            .query_string(Some(display), egl::EXTENSIONS)
+            .map(|exts| {
+                exts.to_string_lossy()
+                    .split_whitespace()
+                    .any(|e| e == "EGL_EXT_image_dma_buf_import_modifiers")
+            })
+            .unwrap_or(false);
+        if !supports_modifiers {
+            eprintln!(
+                "Warning: EGL_EXT_image_dma_buf_import_modifiers not supported; \
+                 tiled buffers may render incorrectly"
+            );
+        }
+
         Ok(Self {
             egl,
             display,
@@ -85,6 +106,7 @@ impl EglContext {
             program: 0,
             vao: 0,
             texture: 0,
+            supports_modifiers,
         })
     }
 
@@ -326,23 +348,43 @@ impl EglContext {
 
             // Import dmabuf as EGL image and bind to texture
             if !frame.planes.is_empty() {
-                let plane = &frame.planes[0];
+                if frame.planes.len() > EGL_DMA_BUF_PLANE_ATTRIBS.len() {
+                    bail!("Unsupported dmabuf plane count: {}", frame.planes.len());
+                }
 
-                let attribs: [i32; 13] = [
+                let mut attribs: Vec<i32> = vec![
                     EGL_WIDTH,
                     frame.width as i32,
                     EGL_HEIGHT,
                     frame.height as i32,
                     EGL_LINUX_DRM_FOURCC_EXT,
                     frame.format as i32,
-                    EGL_DMA_BUF_PLANE0_FD_EXT,
-                    plane.fd,
-                    EGL_DMA_BUF_PLANE0_OFFSET_EXT,
-                    plane.offset as i32,
-                    EGL_DMA_BUF_PLANE0_PITCH_EXT,
-                    plane.stride as i32,
-                    egl::NONE,
                 ];
+
+                // Tiled/compressed layouts (e.g. Intel Arc Tile4 + CCS) need the
+                // explicit modifier, and may carry extra auxiliary planes.
+                let pass_modifier =
+                    self.supports_modifiers && frame.modifier != DRM_FORMAT_MOD_INVALID;
+
+                for (plane, keys) in frame.planes.iter().zip(EGL_DMA_BUF_PLANE_ATTRIBS.iter()) {
+                    attribs.extend_from_slice(&[
+                        keys[0],
+                        plane.fd,
+                        keys[1],
+                        plane.offset as i32,
+                        keys[2],
+                        plane.stride as i32,
+                    ]);
+                    if pass_modifier {
+                        attribs.extend_from_slice(&[
+                            keys[3],
+                            (frame.modifier & 0xffff_ffff) as u32 as i32,
+                            keys[4],
+                            (frame.modifier >> 32) as u32 as i32,
+                        ]);
+                    }
+                }
+                attribs.push(egl::NONE);
 
                 // Use eglCreateImageKHR
                 #[allow(improper_ctypes_definitions)]

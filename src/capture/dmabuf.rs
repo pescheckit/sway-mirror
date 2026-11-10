@@ -8,20 +8,22 @@ use wayland_protocols_wlr::export_dmabuf::v1::client::{
 
 use crate::wayland::AppState;
 
+/// "No explicit modifier" sentinel from drm_fourcc.h
+pub const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
+
 #[derive(Debug, Clone)]
 pub struct DmabufPlane {
     pub fd: RawFd,
     pub offset: u32,
     pub stride: u32,
-    #[allow(dead_code)]
-    pub modifier: u64,
 }
 
 #[derive(Debug)]
 pub struct CapturedFrame {
     pub width: u32,
     pub height: u32,
-    pub format: u32, // DRM fourcc
+    pub format: u32,   // DRM fourcc
+    pub modifier: u64, // DRM format modifier (tiling/compression layout)
     pub planes: Vec<DmabufPlane>,
     #[allow(dead_code)]
     pub fds: Vec<OwnedFd>, // Keep fds alive
@@ -35,6 +37,7 @@ pub struct FrameCaptureState {
     pub width: u32,
     pub height: u32,
     pub format: u32,
+    pub modifier: u64,
     pub num_objects: u32,
     pub planes: Vec<DmabufPlane>,
     pub fds: Vec<OwnedFd>,
@@ -49,6 +52,7 @@ impl FrameCaptureState {
             width: 0,
             height: 0,
             format: 0,
+            modifier: DRM_FORMAT_MOD_INVALID,
             num_objects: 0,
             planes: Vec::new(),
             fds: Vec::new(),
@@ -62,6 +66,7 @@ impl FrameCaptureState {
         self.width = 0;
         self.height = 0;
         self.format = 0;
+        self.modifier = DRM_FORMAT_MOD_INVALID;
         self.num_objects = 0;
         self.planes.clear();
         self.fds.clear();
@@ -127,12 +132,15 @@ impl Dispatch<ZwlrExportDmabufFrameV1, FrameCaptureData> for AppState {
                 width,
                 height,
                 format,
+                mod_high,
+                mod_low,
                 num_objects,
                 ..
             } => {
                 capture.width = width;
                 capture.height = height;
                 capture.format = format;
+                capture.modifier = ((mod_high as u64) << 32) | mod_low as u64;
                 capture.num_objects = num_objects;
             }
             zwlr_export_dmabuf_frame_v1::Event::Object {
@@ -151,7 +159,6 @@ impl Dispatch<ZwlrExportDmabufFrameV1, FrameCaptureData> for AppState {
                         fd: -1,
                         offset: 0,
                         stride: 0,
-                        modifier: 0,
                     });
                 }
 
@@ -159,7 +166,6 @@ impl Dispatch<ZwlrExportDmabufFrameV1, FrameCaptureData> for AppState {
                     fd: owned_fd.as_raw_fd(),
                     offset,
                     stride,
-                    modifier: 0,
                 };
                 capture.fds.push(owned_fd);
             }
@@ -168,6 +174,7 @@ impl Dispatch<ZwlrExportDmabufFrameV1, FrameCaptureData> for AppState {
                     width: capture.width,
                     height: capture.height,
                     format: capture.format,
+                    modifier: capture.modifier,
                     planes: capture.planes.clone(),
                     fds: std::mem::take(&mut capture.fds),
                 });
