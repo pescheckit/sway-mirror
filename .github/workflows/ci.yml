@@ -162,24 +162,25 @@ jobs:
         run: |
           useradd -m builder
           echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          # makepkg refuses to run as root; give the checkout to builder
+          chown -R builder "$GITHUB_WORKSPACE"
 
       - name: Check .SRCINFO matches PKGBUILD
         run: |
-          chown -R builder .
           cd aur
-          sudo -u builder makepkg --printsrcinfo > /tmp/SRCINFO
+          sudo -u builder -H makepkg --printsrcinfo > /tmp/SRCINFO
           diff -u .SRCINFO /tmp/SRCINFO
 
       - name: Build and install with makepkg
         run: |
           pkgver=$(sed -n 's/^pkgver=//p' aur/PKGBUILD)
-          mkdir /tmp/pkg
-          cp aur/PKGBUILD /tmp/pkg/
+          install -d -o builder /tmp/pkg
+          # Everything runs as builder, who owns the checkout; only pacman escalates via sudo
+          sudo -u builder -H cp aur/PKGBUILD /tmp/pkg/
           # Use this checkout as the source tarball (makepkg skips downloading files already present)
-          git archive --prefix="sway-mirror-$pkgver/" -o "/tmp/pkg/sway-mirror-$pkgver.tar.gz" HEAD
-          chown -R builder /tmp/pkg
+          sudo -u builder -H git archive --prefix="sway-mirror-$pkgver/" -o "/tmp/pkg/sway-mirror-$pkgver.tar.gz" HEAD
           cd /tmp/pkg
-          sudo -u builder makepkg --syncdeps --install --noconfirm
+          sudo -u builder -H makepkg --syncdeps --install --noconfirm
 
       - name: Verify installed package
         run: |
