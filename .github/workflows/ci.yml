@@ -144,3 +144,97 @@ jobs:
             echo "::error::aur/PKGBUILD source URL must use \$pkgver, not v\$pkgver (git tags have no v prefix)"
             exit 1
           fi
+
+  # Build the AUR package from this checkout with makepkg in a clean Arch container.
+  # makepkg -s resolves depends/makedepends through pacman, so a dependency that no
+  # official repo provides (e.g. 'libgbm' instead of 'mesa') fails here, not on the AUR.
+  aur-package:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install makepkg prerequisites
+        run: pacman -Syu --noconfirm --needed base-devel git sudo
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Create build user
+        run: |
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+
+      - name: Check .SRCINFO matches PKGBUILD
+        run: |
+          chown -R builder .
+          cd aur
+          sudo -u builder makepkg --printsrcinfo > /tmp/SRCINFO
+          diff -u .SRCINFO /tmp/SRCINFO
+
+      - name: Build and install with makepkg
+        run: |
+          pkgver=$(sed -n 's/^pkgver=//p' aur/PKGBUILD)
+          mkdir /tmp/pkg
+          cp aur/PKGBUILD /tmp/pkg/
+          # Use this checkout as the source tarball (makepkg skips downloading files already present)
+          git archive --prefix="sway-mirror-$pkgver/" -o "/tmp/pkg/sway-mirror-$pkgver.tar.gz" HEAD
+          chown -R builder /tmp/pkg
+          cd /tmp/pkg
+          sudo -u builder makepkg --syncdeps --install --noconfirm
+
+      - name: Verify installed package
+        run: |
+          pacman -Qi sway-mirror
+          ! ldd /usr/bin/sway-mirror | grep 'not found'
+          sway-mirror --help
+
+  # Build the .deb exactly as the release does, then install it in clean containers.
+  deb-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential debhelper libwayland-dev libgbm-dev libegl1-mesa-dev libdrm-dev pkg-config
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build .deb package
+        run: |
+          dpkg-buildpackage -us -uc -b -d
+          mkdir dist
+          mv ../sway-mirror_*.deb dist/
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v7
+        with:
+          name: deb-package
+          path: dist/
+
+  deb-install:
+    needs: deb-package
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['debian:stable', 'ubuntu:latest']
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      - name: Download .deb
+        uses: actions/download-artifact@v8
+        with:
+          name: deb-package
+
+      - name: Install into clean system
+        run: |
+          apt-get update
+          apt-get install -y ./sway-mirror_*.deb
+
+      - name: Verify installed package
+        run: |
+          dpkg -s sway-mirror
+          ! ldd /usr/bin/sway-mirror | grep 'not found'
+          sway-mirror --help
